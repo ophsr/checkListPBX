@@ -1,0 +1,195 @@
+#!/bin/sh
+#
+# Proposito do Script: CheckList
+# Criado por Pedro Rodrigues
+# Alterado em 15/04/2021
+# Alteracao efetuada: Criação
+# Verifica role/redundancia e status dos trunks
+#
+#                     ^ ^
+#                   ( O O )
+#   +============oOO==(_)==OOo==============+
+#   |  (\_/)                                |
+#   | ( °_° ) Pedro Rodrigues               |
+#   |  /(_)\  phsr2001@gmail.com            |
+#   |  ^  ^   pedro.rodrigues@3corp.com.br  |
+#   +=======================================+
+#
+
+cd /DHS3bin/mtcl/cmd || exit
+SEPARATOR_INIT="\e[0;0m+-------------------------------------------"
+SEPARATOR_FINAL="\e[0;0m-------------------------------------------+"
+client=$(hostname)
+
+vs="CheckListOXE 0.1"
+creditos="Pedro Rodrigues"
+kernel="Kernel: $(uname -r)"
+arquitetura="Arquitetura: $(uname -m)"
+
+echo -e "\e[40;31;1;5mATENCAO CHECKLIST <$client>!!!\e[0;0m"
+
+CreateCheckListOXE() {
+    alias check_list='./checkListOXE'
+}
+Realease() {
+    # version
+    info_aux=$(siteid | grep Version)
+    release_aux=$(siteid | grep MAO)
+    info=$(echo "$info_aux" | awk '{print $5}')
+    release=$(echo "$release_aux" | awk '{print $5}')
+    date=$(date +%d/%m/%y-%H:%M:%S)
+    echo "OXE"
+    echo "Versao   : $info"
+    echo "Realease : $release"
+    echo "Data/Hora: $date"
+}
+BasicInfo() {
+    # redundancy
+    redundancy=$(tool twin | grep Duplicated | cut -c33-35)
+    transmissionCPU_CPU=$(tool twin | grep Transmission | cut -c29-34)
+    telephony=$(tool twin | grep Telephony | cut -c29-34)
+    monitel=$(tool twin | grep monitel | cut -c27-35)
+    memloader=$(tool twin | grep memloader | cut -c29-34)
+    allApp=$(tool twin | grep All | cut -c35-41)
+    role=$(role)
+
+    echo -e "$SEPARATOR_INIT\e[92mVERSION/ROLE/REDUNDANCY$SEPARATOR_FINAL"
+
+    # version
+    Realease
+    # ROLE/REDUNDANCY
+    if [ "$role" != "MAIN" ]; then
+        if [ "$role" != "STAND-BY" ]; then
+            echo -e "\e[40;31;1;5mATENCAO!!!\e[0;0m A aplicacao do PABX ainda nao subiu! \e[30;41m$role\e[0;0m"
+            sleep 5
+            exit
+        else
+            clear
+            echo -e "\e[40;31;1;5mATENCAO !!!\e[0;0m Esta CPU esta como: \e[30;43m$role\e[0;0m"
+        fi
+    else
+        echo -e "Esta CPU esta como: \e[30;42m$role\e[0;0m"
+    fi
+    if [ "$redundancy" = "YES" ]; then
+        if [ "$transmissionCPU_CPU" != "READY" ] &&
+            [ "$telephony" != "READY" ] &&
+            [ "$monitel" != "READY" ] &&
+            [ "$memloader" != "READY" ] &&
+            [ "$allApp" != "READY" ] ||
+            [ "$transmissionCPU_CPU" != "" ] ||
+            [ "$telephony" != "" ] ||
+            [ "$monitel" != "" ] ||
+            [ "$memloader" != "" ] ||
+            [ "$allApp" != "" ]; then
+            echo -e "Redundacia: \e[41m\e[30m\e[5m[FALHA]\e[25m\033[0;0m"
+        else
+            echo -e "Redundacia: \e[30;42m[OK]\e[0;0m"
+        fi
+    else
+        echo -e "Redundacia: \e[30;43m[SEM REDUNDANCIA]\e[0;0m"
+    fi
+}
+Trkvisu() {
+    stty echo
+    j=30
+    i=$j
+    tool trkvisu all | grep TG | cut -c03-7 >trunks
+    trk=$(sed ':a; N; $!ba; s/\n//g' trunks)
+    CreateFlags "$trk"
+}
+CreateFlags() {
+    echo 100 >/DHS3bin/mtcl/cmd/Print
+    for tronco in $trk; do
+        # Criando uma flag para cada tronco
+        echo 100 >/DHS3bin/mtcl/cmd/ValorTemp-"$tronco"
+    done
+    TrkVariables
+}
+TrkVariables() {
+    for tronco in $trk; do
+        valorTemp=$(cat /DHS3bin/mtcl/cmd/ValorTemp-"$tronco") # Atualiza a variavel valorTemp com o conteudo da flag ValorTemp
+        free=$(
+            tool trkstat "$tronco" | grep " F " >tt.txt
+            tr -cd '\F' <tt.txt | wc -c
+            rm tt.txt
+        ) # Coleta a quantidade de canais livres
+        busy=$(
+            tool trkstat "$tronco" | grep " B " >tt.txt
+            tr -cd '\B' <tt.txt | wc -c
+            rm tt.txt
+        ) # Coleta a quantidade de canais ocupados
+        bloq=$(
+            tool trkstat "$tronco" | grep hs >tt.txt
+            tr -cd '\h' <tt.txt | wc -c
+            rm tt.txt
+        ) # Coleta a quantidade de canais bloqueados
+
+        #   Transforma as variaveis texto em variaveis numericas
+        valorTemp=$((valorTemp - 0))
+        free=$((free - 0))
+        busy=$((busy - 3))
+        bloq=$((bloq - 0))
+        total=$((free + busy))
+        total2=$((free + busy + bloq))
+        if [ $total -gt 0 ]; then
+            metade=$((total / 2))
+            porcent=$((busy * 100 / total))
+        else
+            metade=0
+            porcent=0
+        fi
+
+        echo "$tronco $valorTemp $free $busy $bloq $total $total2 $metade $porcent" >Info-"$tronco"
+    done
+    RunningCheck
+}
+RunningCheck() {
+    for tronco in $trk; do
+        Check $(cat Info-"$tronco")
+    done
+    if [ $(cat /DHS3bin/mtcl/cmd/Print) -ge 1 ]; then
+        echo 0 >/DHS3bin/mtcl/cmd/Print
+        PreparingGenerator
+    else
+        Sair
+    fi
+}
+Check() {
+    if [ $2 -ne $4 ]; then # Verifica se $valorTemp eh diferente de $busy
+        #Se a flag ValorTemp for diferente do total de ocupacao, atualiza a flag e Executa a funcao Gera
+        echo $4 >/DHS3bin/mtcl/cmd/ValorTemp-$1 # Atualizando a flag ValorTemp
+        echo 1 >/DHS3bin/mtcl/cmd/Print
+        i=$j # Zera o contador
+    fi
+}
+PreparingGenerator() {
+    echo -e "$SEPARATOR_INIT\e[92mTRUNKS$SEPARATOR_FINAL"
+    for tronco in $trk; do
+        Generator $(cat Info-"$tronco")
+    done
+    delArchives
+}
+Generator() {
+    if [ $6 -eq $5 ] || [ $7 -eq $5 ]; then
+        echo -e "  $1 $(tool trkvisu $1 | grep TrunkName | cut -c20-40)  Total. $7 | Free: $3 | Bloq. $5  \e[41m\e[30m\e[5m[FALHA]\e[25m\033[0;0m"
+    elif [ $5 -ge 1 ]; then
+        echo -e "  $1 $(tool trkvisu $1 | grep TrunkName | cut -c20-40)  Total. $7 | Free: $3 | Bloq. $5  \033[30;43m[POSSIVEL FALHA]\e[25m\033[0;0m"
+    elif [ $3 -gt 0 ]; then
+        echo -e "  $1 $(tool trkvisu $1 | grep TrunkName | cut -c20-40)  Total. $7 | Free: $3 | Bloq. $5  \033[07;32m[OK]\033[0;0m"
+    else
+        echo -e "  $1 $(tool trkvisu $1 | grep TrunkName | cut -c20-40)  Total. $7 | Free: $3 | Bloq. $5  \e[41m\e[30m\e[5m[CONGESTIONADO]\e[25m\033[0;0m"
+    fi
+}
+Shelfs(){
+echo -e "$SEPARATOR_INIT\e[92mSHELFS$SEPARATOR_FINAL"
+}
+delArchives() {
+    rm /DHS3bin/mtcl/cmd/ValorTemp-*
+    rm /DHS3bin/mtcl/cmd/Info-*
+    rm /DHS3bin/mtcl/cmd/Print
+    rm /DHS3bin/mtcl/cmd/trunks
+}
+CreateCheckListOXE
+BasicInfo
+Trkvisu
+Shelfs
