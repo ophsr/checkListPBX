@@ -2,19 +2,13 @@
 #
 # Proposito do Script: CheckList
 # Criado por Pedro Rodrigues
-# Alterado em 15/04/2021
-# Alteracao efetuada: Criação
-# Verifica role/redundancia e status dos trunks
-#
 #                     ^ ^
 #                   ( O O )
 #   +============oOO==(_)==OOo==============+
-#   |  (\_/)                                |
-#   | ( °_° ) Pedro Rodrigues               |
-#   |  /(_)\  phsr2001@gmail.com            |
-#   |  ^  ^   pedro.rodrigues@3corp.com.br  |
+#   | Pedro Rodrigues                       |
+#   | phsr2001@gmail.com                    |
+#   | pedro.rodrigues@3corp.com.br          |
 #   +=======================================+
-#
 
 cd /DHS3bin/mtcl/cmd || exit
 SEPARATOR_INIT="\e[0;0m+-------------------------------------------"
@@ -188,9 +182,9 @@ PreparingShelfs() {
 PCS_Logic() {
     tool config "$1" | grep App | awk '{printf $2"-"$4" "; if($9 == "OUT") print $9"_"$10"_"$11; else print $9"_"$10}' >app-server
     {
-         tool config "$1" | grep -w UNDEF | sed 's/|//g' | awk '{print $(NF-1),$NF}'
-         tool config "$1" | grep -w INACTIVE | sed 's/|//g' | awk '{print $(NF-1),$NF}'
-         tool config "$1" | grep -w ACTIVE | sed 's/|//g' | awk '{print $(NF-1),$NF}'
+        tool config "$1" | grep -w UNDEF | sed 's/|//g' | awk '{print $(NF-1),$NF}'
+        tool config "$1" | grep -w INACTIVE | sed 's/|//g' | awk '{print $(NF-1),$NF}'
+        tool config "$1" | grep -w ACTIVE | sed 's/|//g' | awk '{print $(NF-1),$NF}'
     } >>pcsAll
     if [ ! -s app-server ] && [ ! -s pcsAll ]; then
         ShelfLogic "$shelf"
@@ -328,7 +322,48 @@ ShelfsGenerator() {
     esac
 }
 
+Compressors() {
+     echo -e "$SEPARATOR_INIT\e[92mCOMPRESSORES$SEPARATOR_FINAL"
+    tool compvisu lio | grep -E "(REG NOT INITIALIZED)" | awk '{print $2"-"$4"\t"$6}' >compressors-REG
+    tool compvisu lio | grep -E "(IN SERVICE)" | awk '{print $2"-"$4"\t"$6}' >compressors-IN_SERVICE
+    tool compvisu lio | grep -E "(OUT OF SERVICE)" | awk '{print $2"-"$4"\t"$6}' >compressors-OUT_OF_SERVICE
 
+    compressorsREG=$(cat compressors-REG)
+    compressorsIN_SERVICE=$(cat compressors-IN_SERVICE)
+    compressorsOUT_OF_SERVICE=$(cat compressors-OUT_OF_SERVICE)
+
+    qntREG=$(cat compressors-REG | wc -l)
+    qntIN_SERVICE=$(cat compressors-IN_SERVICE | wc -l)
+    qntOUT=$(cat compressors-OUT_OF_SERVICE | wc -l)
+
+    let qntREG=$((qntREG + 0))
+    let qntIN_SERVICE=$((qntIN_SERVICE + 0))
+    let qntOUT=$((qntOUT + 0))
+    let total=$((qntREG + 0))+$((qntIN_SERVICE + 0))+$((qntOUT + 0))
+
+    if [ "$qntREG" -lt "$total" ] || [ "$qntOUT" -lt "$total" ] && [ "$qntREG" -ne 0 ] || [ "$qntOUT" -ne 0 ]; then
+        echo -e "Compressores \e[41m\e[30m[FALHA]\033[0;0m"
+        echo -e "      Cr-Cl\tType"
+        while read LINE; do
+            echo "   -> $LINE"
+        done <compressors-REG
+        while read LINE; do
+            echo "   -> $LINE"
+        done <compressors-OUT_OF_SERVICE
+    fi
+
+    if [ "$qntIN_SERVICE" -eq "$total" ]; then
+        echo -e "Compressores \e[30;42m[OK]\033[0;0m"
+    fi
+    if [ "$qntIN_SERVICE" -lt "$total" ] && [ "$qntIN_SERVICE" -ne 0 ]; then
+        echo -e "Compressores \e[30;42m[OK]\033[0;0m"
+        echo -e "      Cr-Cl\tType"
+        while read LINE; do
+            echo "   -> $LINE"
+        done <compressors-IN_SERVICE
+    fi
+
+}
 
 delArchives() {
     rm /DHS3bin/mtcl/cmd/ValorTemp-*
@@ -340,10 +375,13 @@ delArchives() {
     rm /DHS3bin/mtcl/cmd/app-server
     rm /DHS3bin/mtcl/cmd/boad-*
     rm /DHS3bin/mtcl/cmd/config-*
+    rm /DHS3bin/mtcl/cmd/compressors-*
+
+
 }
 
 BasicInfo
 Trkvisu
 PreparingShelfs
-
+Compressors
 delArchives
