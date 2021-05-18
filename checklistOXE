@@ -26,11 +26,8 @@ creditos="Pedro Rodrigues"
 kernel="Kernel: $(uname -r)"
 arquitetura="Arquitetura: $(uname -m)"
 
-echo -e "\e[40;31;1;5mATENCAO CHECKLIST <$client>!!!\e[0;0m"
+echo -e "\e[40;31;1mATENCAO CHECKLIST <$client>!!!\e[0;0m"
 
-CreateCheckListOXE() {
-    alias check_list='./checkListOXE'
-}
 Realease() {
     # version
     info_aux=$(siteid | grep Version)
@@ -60,12 +57,11 @@ BasicInfo() {
     # ROLE/REDUNDANCY
     if [ "$role" != "MAIN" ]; then
         if [ "$role" != "STAND-BY" ]; then
-            echo -e "\e[40;31;1;5mATENCAO!!!\e[0;0m A aplicacao do PABX ainda nao subiu! \e[30;41m$role\e[0;0m"
+            echo -e "\e[40;31;1mATENCAO!!!\e[0;0m A aplicacao do PABX ainda nao subiu! \e[30;41m$role\e[0;0m"
             sleep 5
             exit
         else
-            clear
-            echo -e "\e[40;31;1;5mATENCAO !!!\e[0;0m Esta CPU esta como: \e[30;43m$role\e[0;0m"
+            echo -e "\e[40;31;1mATENCAO !!!\e[0;0m Esta CPU esta como: \e[30;43m$role\e[0;0m"
         fi
     else
         echo -e "Esta CPU esta como: \e[30;42m$role\e[0;0m"
@@ -75,13 +71,8 @@ BasicInfo() {
             [ "$telephony" != "READY" ] &&
             [ "$monitel" != "READY" ] &&
             [ "$memloader" != "READY" ] &&
-            [ "$allApp" != "READY" ] ||
-            [ "$transmissionCPU_CPU" != "" ] ||
-            [ "$telephony" != "" ] ||
-            [ "$monitel" != "" ] ||
-            [ "$memloader" != "" ] ||
-            [ "$allApp" != "" ]; then
-            echo -e "Redundacia: \e[41m\e[30m\e[5m[FALHA]\e[25m\033[0;0m"
+            [ "$allApp" != "READY" ]; then
+            echo -e "Redundacia: \e[41m\e[30m[FALHA]\e[25m\033[0;0m"
         else
             echo -e "Redundacia: \e[30;42m[OK]\e[0;0m"
         fi
@@ -167,29 +158,164 @@ PreparingGenerator() {
     for tronco in $trk; do
         Generator $(cat Info-"$tronco")
     done
-    delArchives
 }
 Generator() {
     if [ $6 -eq $5 ] || [ $7 -eq $5 ]; then
-        echo -e "  $1 $(tool trkvisu $1 | grep TrunkName | cut -c20-40)  Total. $7 | Free: $3 | Bloq. $5  \e[41m\e[30m\e[5m[FALHA]\e[25m\033[0;0m"
+        echo -e "  $1 $(tool trkvisu $1 | grep TrunkName | cut -c20-40)  Total. $7 | Free: $3 | Bloq. $5  \e[41m\e[30m[FALHA]\e[25m\033[0;0m"
     elif [ $5 -ge 1 ]; then
         echo -e "  $1 $(tool trkvisu $1 | grep TrunkName | cut -c20-40)  Total. $7 | Free: $3 | Bloq. $5  \033[30;43m[POSSIVEL FALHA]\e[25m\033[0;0m"
     elif [ $3 -gt 0 ]; then
-        echo -e "  $1 $(tool trkvisu $1 | grep TrunkName | cut -c20-40)  Total. $7 | Free: $3 | Bloq. $5  \033[07;32m[OK]\033[0;0m"
+        echo -e "  $1 $(tool trkvisu $1 | grep TrunkName | cut -c20-40)  Total. $7 | Free: $3 | Bloq. $5  \e[30;42m[OK]\033[0;0m"
     else
-        echo -e "  $1 $(tool trkvisu $1 | grep TrunkName | cut -c20-40)  Total. $7 | Free: $3 | Bloq. $5  \e[41m\e[30m\e[5m[CONGESTIONADO]\e[25m\033[0;0m"
+        echo -e "  $1 $(tool trkvisu $1 | grep TrunkName | cut -c20-40)  Total. $7 | Free: $3 | Bloq. $5  \e[41m\e[30m[CONGESTIONADO]\e[25m\033[0;0m"
     fi
 }
-Shelfs(){
-echo -e "$SEPARATOR_INIT\e[92mSHELFS$SEPARATOR_FINAL"
+PreparingShelfs() {
+    echo -e "$SEPARATOR_INIT\e[92mSHELFS$SEPARATOR_FINAL"
+    tool config all | grep Crystal | awk '{print $2}' | sed '2,255s/^/ /' | sed ':a;$!N;s/\n//;ta;' >shelfs
+    shelfs=$(cat /DHS3bin/mtcl/cmd/shelfs)
+    #
+    for shelf in $shelfs; do
+        if [ "$shelf" = "0" ]; then
+            PCS_Logic "$shelf"
+            if [ -s app-server ] &&
+                [ -s pcs ]; then
+                ShelfLogic "$shelf"
+            fi
+        else
+            ShelfLogic "$shelf"
+        fi
+    done
 }
+
+PCS_Logic() {
+    tool config "$1" | grep App | awk '{printf $2"-"$4" "; if($9 == "OUT") print $9"_"$10"_"$11; else print $9"_"$10}' >app-server
+    {
+        tool config "$1" | grep UNDEF | sed 's/|//g' | awk '{print $(NF-1),$NF}'
+        tool config "$1" | grep Inactive | sed 's/|//g' | awk '{print $(NF-1),$NF}'
+        tool config "$1" | grep Active | sed 's/|//g' | awk '{print $(NF-1),$NF}'
+    } >>pcsAll
+
+    qntUNDEF=$(cat pcsAll | grep -c UNDEF)
+    qntInactive=$(cat pcsAll | grep -c Inactive)
+    qntActive=$(cat pcsAll | grep -c Active)
+
+    let qntUNDEF=$((qntUNDEF + 0))
+    let qntInactive=$((qntInactive + 0))
+    let qntActive=$((qntActive + 0))
+    let qntTotal=$((qntUNDEF + 0))+$((qntInactive + 0))+$((qntActive + 0))
+
+    PCSGenerator $((qntUNDEF + 0)) $((qntInactive + 0)) $((qntActive + 0)) $((qntTotal + 0))
+
+}
+
+PCSGenerator() {
+
+    status=""
+
+    if [ "$1" -eq "$4" ]; then
+        echo -e "  \e[41m\e[30m[PCS's FALHA TOTAL]\033[0;0m"
+    elif [ "$2" -eq "$4" ]; then
+        echo -e "  \e[30;42m[PCS's OK]\033[0;0m"
+    elif [ "$3" -eq "$4" ]; then
+        echo -e "  \e[43m\e[30m[PCS's ATENCAO]\033[0;0m"
+    fi
+
+    if [ "$2" -le "$4" ] && [ "$2" -ne 0 ]; then
+        echo -e "  \e[30;42m[PCS's Inactive:]\033[0;0m"
+        pcsInactive=$(cat pcsAll | grep Inactive | sed 's/|//g' | awk '{print $(NF-1)}')
+        for pcs in $pcsInactive; do
+            echo "   -> $pcs"
+        done
+    fi
+    if [ "$3" -le "$4" ] && [ "$3" -ne 0 ]; then
+        echo -e "  \e[43m\e[30m[PCS's ACTIVE:]\033[0;0m"
+        pcsActive=$(cat pcsAll | grep Active | sed 's/|//g' | awk '{print $(NF-1)}')
+        for pcs in $pcsActive; do
+            echo "   -> $pcs"
+        done
+    fi
+    if [ "$1" -le "$4" ] && [ "$1" -ne 0 ]; then
+        echo -e "  \e[41m\e[30m[PCS's UNDEF:]\033[0;0m"
+        pcsUNDEF=$(cat pcsAll | grep UNDEF | sed 's/|//g' | awk '{print $(NF-1)}')
+        for pcs in $pcsUNDEF; do
+            echo "   -> $pcs"
+        done
+    fi
+
+}
+
+ShelfLogic() {
+    tool config "$1" >>config-"$1"
+
+    cat config-"$1" | sed 's/|/ /g' | grep -c REG >boad-REG
+    cat config-"$1" | sed 's/|/ /g' | grep -c ONLY >boad-ONLY-OPS
+    cat config-"$1" | sed 's/|/ /g' | grep -c SERVICE >boad-SERVICE
+    cat config-"$1" | sed 's/|/ /g' | grep -c OUT >boad-OUT
+    cat config-"$1" | sed 's/|/ /g' | grep -c INIT1 >boad-INIT1
+    cat config-"$1" | sed 's/|/ /g' | grep -c INIT2 >boad-INIT2
+
+    qntREG=$(cat boad-REG)
+    qntONLY=$(cat boad-ONLY-OPS)
+    qntSERVICE=$(cat boad-SERVICE)
+    qntOUT=$(cat boad-OUT)
+    qntINIT1=$(cat boad-INIT1)
+    qntINIT2=$(cat boad-INIT2)
+
+    let qntSERVICE=$((qntSERVICE + 0))
+    let qntREG=$((qntREG + 0))
+    let qntOUT=$((qntOUT + 0))
+    let qntINIT1=$((qntINIT1 + 0))
+    let qntINIT2=$((qntINIT2 + 0))
+
+    let qntCALL=$((qntCALL + 0))
+
+    let qntTotal=$((qntSERVICE + 0))+$((qntREG + 0))+$((qntOUT + 0))+$((qntINIT1 + 0))+$((qntINIT2 + 0))+$((qntONLY + 0))
+    ShelfsGenerator $((qntSERVICE + 0)) $((qntREG + 0)) $((qntOUT + 0)) $((qntINIT1 + 0)) $((qntINIT2 + 0)) $((qntONLY + 0)) $((qntTotal + 0)) $(($1 + 0))
+    #                         1                  2              3               4               5               6               7                 8                       9
+
+}
+
+ShelfsGenerator() {
+    status=""
+
+    if [ "$1" -eq "$7" ]; then
+        status="OK"
+    elif [ "$2" -eq "$7" ] || [ "$3" -eq "$7" ] || [ "$6" -eq "$7" ]; then
+        status="FALHA"
+    elif [ "$4" -eq "$7" ] || [ "$5" -eq "$7" ]; then
+        status="I/T"
+    fi
+
+    case $status in
+    "OK")
+        echo -e "  Shelf $8 \e[30;42m[OK]\033[0;0m"
+        ;;
+    "FALHA")
+        echo -e "  Shelf $8 \e[41m\e[30m[FALHA]\033[0;0m"
+        ;;
+    "I/T")
+        echo -e "  Shelf $8 \e[43m\e[30m[INICIANDO OU TRAVADO]\033[0;0m"
+        ;;
+    "")
+        echo -e "  Shelf $8 \e[43m\e[30m[POSSIVEL FALHA] - EM SERVICO: $1 - FORA DE SERVICO: $3 - NAO INICIADA: $2 - INICIANDO OU TRAVADO: $(($4 + $5)) - OPS: $6\033[0;0m"
+        ;;
+    esac
+}
+
 delArchives() {
     rm /DHS3bin/mtcl/cmd/ValorTemp-*
     rm /DHS3bin/mtcl/cmd/Info-*
     rm /DHS3bin/mtcl/cmd/Print
     rm /DHS3bin/mtcl/cmd/trunks
+    rm /DHS3bin/mtcl/cmd/shelfs
+    rm /DHS3bin/mtcl/cmd/pcsAll
+    rm /DHS3bin/mtcl/cmd/app-server
+    rm /DHS3bin/mtcl/cmd/boad-*
+    rm /DHS3bin/mtcl/cmd/config-*
 }
-CreateCheckListOXE
+
 BasicInfo
 Trkvisu
-Shelfs
+PreparingShelfs
+delArchives
