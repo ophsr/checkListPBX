@@ -171,80 +171,106 @@ Generator() {
     fi
 }
 PreparingShelfs() {
-    echo -e "$SEPARATOR_INIT\e[92mSHELFS$SEPARATOR_FINAL"
-    tool config all | grep Crystal | awk '{print $2}' | sed '2,255s/^/ /' | sed ':a;$!N;s/\n//;ta;' >shelfs
+    tool config all | grep Crystal | awk '{print $2}' | sed 's/[^0-9]//g' | sed '2,255s/^/ /' | sed ':a;$!N;s/\n//;ta;' >shelfs
     shelfs=$(cat /DHS3bin/mtcl/cmd/shelfs)
+    echo -e "$SEPARATOR_INIT\e[92mSHELFS$SEPARATOR_FINAL"
+
     #
     for shelf in $shelfs; do
         if [ "$shelf" = "0" ]; then
             PCS_Logic "$shelf"
-            if [ -s app-server ] &&
-                [ -s pcs ]; then
-                ShelfLogic "$shelf"
-            fi
         else
             ShelfLogic "$shelf"
         fi
     done
-}
 
+}
 PCS_Logic() {
     tool config "$1" | grep App | awk '{printf $2"-"$4" "; if($9 == "OUT") print $9"_"$10"_"$11; else print $9"_"$10}' >app-server
     {
-        tool config "$1" | grep UNDEF | sed 's/|//g' | awk '{print $(NF-1),$NF}'
-        tool config "$1" | grep Inactive | sed 's/|//g' | awk '{print $(NF-1),$NF}'
-        tool config "$1" | grep Active | sed 's/|//g' | awk '{print $(NF-1),$NF}'
+         tool config "$1" | grep -w UNDEF | sed 's/|//g' | awk '{print $(NF-1),$NF}'
+         tool config "$1" | grep -w INACTIVE | sed 's/|//g' | awk '{print $(NF-1),$NF}'
+         tool config "$1" | grep -w ACTIVE | sed 's/|//g' | awk '{print $(NF-1),$NF}'
     } >>pcsAll
+    if [ ! -s app-server ] && [ ! -s pcsAll ]; then
+        ShelfLogic "$shelf"
+    elif [ -s app-server ] && [ ! -s pcsAll ]; then
+        AppServerGenerator
+    elif [ ! -s app-server ] && [ -s pcsAll ]; then
+        PCSGenerator
+    elif [ -s app-server ] && [ -s pcsAll ]; then
+        AppServerGenerator
+        PCSGenerator
+    fi
 
-    qntUNDEF=$(cat pcsAll | grep -c UNDEF)
-    qntInactive=$(cat pcsAll | grep -c Inactive)
-    qntActive=$(cat pcsAll | grep -c Active)
+}
+AppServerGenerator() {
+    qntIN_SERVICE=$(cat app-server | grep -c IN_SERVICE)
+    qntREG_NOT=$(cat app-server | grep -c REG_NOT)
+    qntOUT=$(cat app-server | grep -c OUT)
+
+    let qntIN_SERVICE=$((qntIN_SERVICE + 0))
+    let qntREG_NOT=$((qntREG_NOT + 0))
+    let qntOUT=$((qntOUT + 0))
+    let qntTotal=$((qntIN_SERVICE + 0))+$((qntREG_NOT + 0))+$((qntOUT + 0))
+
+    if [ "$qntOUT" -eq "$qntTotal" ] || [ "$qntREG_NOT" -eq "$qntTotal" ]; then
+        echo -e "  APPLIANCE SERVER:\e[41m\e[30m[FALHA TOTAL]\033[0;0m"
+    elif [ "$qntIN_SERVICE" -eq "$qntTotal" ]; then
+        echo -e "  APPLIANCE SERVER:\e[30;42m[OK]\033[0;0m"
+    fi
+    if [ "$qntIN_SERVICE" -lt "$qntTotal" ]; then
+        echo -e "  APPLIANCE SERVER:\e[41m\e[30m[FALHA]\033[0;0m"
+        appREG_NOT=$(cat app-server | grep REG_NOT | sed 's/|//g' | awk '{print $(NF-1)}')
+        appOUT=$(cat app-server | grep OUT | sed 's/|//g' | awk '{print $(NF-1)}')
+        for app in $appREG_NOT; do
+            echo "   -> $app (shelf-board)"
+        done
+        for app in $appOUT; do
+            echo "   -> $app (shelf-board)"
+        done
+    fi
+}
+PCSGenerator() {
+    qntUNDEF=$(cat pcsAll | grep -c -w UNDEF)
+    qntInactive=$(cat pcsAll | grep -c -w INACTIVE)
+    qntActive=$(cat pcsAll | grep -c -w ACTIVE)
 
     let qntUNDEF=$((qntUNDEF + 0))
     let qntInactive=$((qntInactive + 0))
     let qntActive=$((qntActive + 0))
     let qntTotal=$((qntUNDEF + 0))+$((qntInactive + 0))+$((qntActive + 0))
 
-    PCSGenerator $((qntUNDEF + 0)) $((qntInactive + 0)) $((qntActive + 0)) $((qntTotal + 0))
-
-}
-
-PCSGenerator() {
-
-    status=""
-
-    if [ "$1" -eq "$4" ]; then
+    if [ "$qntUNDEF" -eq "$qntTotal" ]; then
         echo -e "  \e[41m\e[30m[PCS's FALHA TOTAL]\033[0;0m"
-    elif [ "$2" -eq "$4" ]; then
+    elif [ "$qntInactive" -eq "$qntTotal" ]; then
         echo -e "  \e[30;42m[PCS's OK]\033[0;0m"
-    elif [ "$3" -eq "$4" ]; then
+    elif [ "$qntActive" -eq "$qntTotal" ]; then
         echo -e "  \e[43m\e[30m[PCS's ATENCAO]\033[0;0m"
     fi
 
-    if [ "$2" -le "$4" ] && [ "$2" -ne 0 ]; then
+    if [ "$qntInactive" -le "$qntTotal" ] && [ "$qntInactive" -ne 0 ]; then
         echo -e "  \e[30;42m[PCS's Inactive:]\033[0;0m"
-        pcsInactive=$(cat pcsAll | grep Inactive | sed 's/|//g' | awk '{print $(NF-1)}')
+        pcsInactive=$(cat pcsAll | grep -w INACTIVE | sed 's/|//g' | awk '{print $(NF-1)}')
         for pcs in $pcsInactive; do
             echo "   -> $pcs"
         done
     fi
-    if [ "$3" -le "$4" ] && [ "$3" -ne 0 ]; then
+    if [ "$qntActive" -le "$qntTotal" ] && [ "$qntActive" -ne 0 ]; then
         echo -e "  \e[43m\e[30m[PCS's ACTIVE:]\033[0;0m"
-        pcsActive=$(cat pcsAll | grep Active | sed 's/|//g' | awk '{print $(NF-1)}')
+        pcsActive=$(cat pcsAll | grep -w ACTIVE | sed 's/|//g' | awk '{print $(NF-1)}')
         for pcs in $pcsActive; do
             echo "   -> $pcs"
         done
     fi
-    if [ "$1" -le "$4" ] && [ "$1" -ne 0 ]; then
+    if [ "$qntUNDEF" -le "$qntTotal" ] && [ "$qntUNDEF" -ne 0 ]; then
         echo -e "  \e[41m\e[30m[PCS's UNDEF:]\033[0;0m"
-        pcsUNDEF=$(cat pcsAll | grep UNDEF | sed 's/|//g' | awk '{print $(NF-1)}')
+        pcsUNDEF=$(cat pcsAll | grep -w UNDEF | sed 's/|//g' | awk '{print $(NF-1)}')
         for pcs in $pcsUNDEF; do
             echo "   -> $pcs"
         done
     fi
-
 }
-
 ShelfLogic() {
     tool config "$1" >>config-"$1"
 
@@ -275,7 +301,6 @@ ShelfLogic() {
     #                         1                  2              3               4               5               6               7                 8                       9
 
 }
-
 ShelfsGenerator() {
     status=""
 
@@ -298,10 +323,12 @@ ShelfsGenerator() {
         echo -e "  Shelf $8 \e[43m\e[30m[INICIANDO OU TRAVADO]\033[0;0m"
         ;;
     "")
-        echo -e "  Shelf $8 \e[43m\e[30m[POSSIVEL FALHA] - EM SERVICO: $1 - FORA DE SERVICO: $3 - NAO INICIADA: $2 - INICIANDO OU TRAVADO: $(($4 + $5)) - OPS: $6\033[0;0m"
+        echo -e "  Shelf $8 \e[43m\e[30m[POSSIVEL FALHA] - FORA DE SERVICO: $3 - NAO INICIADA: $2 - INICIANDO OU TRAVADO: $(($4 + $5)) - OPS: $6\033[0;0m"
         ;;
     esac
 }
+
+
 
 delArchives() {
     rm /DHS3bin/mtcl/cmd/ValorTemp-*
@@ -318,4 +345,5 @@ delArchives() {
 BasicInfo
 Trkvisu
 PreparingShelfs
+
 delArchives
